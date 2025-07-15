@@ -1,9 +1,12 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 import os
 
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import roc_curve, auc
 
 from tensorflow import keras 
 from tensorflow.keras import layers, models
@@ -120,7 +123,7 @@ if __name__ == '__main__':
     df = get_df()
 
     # extract just data to predict gw X
-    gw = 5
+    gw = 35
     df_gw = get_df_for_gw(df, gw)
 
     # value preprocess
@@ -147,6 +150,23 @@ if __name__ == '__main__':
     forest_accuracy = forest_model.score(X_test, y_test)
     print(f"Model accuracy: {forest_accuracy:.2f}")
 
+    y_pred_rf = forest_model.predict(X_test)
+
+    print(classification_report(y_test, y_pred_rf))
+
+    cm = confusion_matrix(y_test, y_pred_rf)
+    ConfusionMatrixDisplay(cm).plot()
+
+    importances = forest_model.feature_importances_
+    feature_names = X_train.columns
+
+    feat_imp = pd.Series(importances, index=feature_names).sort_values(ascending=False)
+
+    plt.figure(figsize=(10,6))
+    feat_imp.head(20).plot(kind='barh')
+    plt.title("Top 20 Feature Importances - Random Forest")
+    plt.show()
+
     # neural network binary classifier
     nn_model = models.Sequential([
         layers.Input(shape=(X_train.shape[1],)),
@@ -164,9 +184,50 @@ if __name__ == '__main__':
     ])
 
     nn_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['binary_accuracy'])
-    nn_model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.2)
+    history = nn_model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.2)
     nn_prediction = nn_model.predict(X_test)
     print("Neural network predictions made successfully.")
 
     nn_accuracy = nn_model.evaluate(X_test, y_test, verbose=0)[1]
     print(f"Neural network accuracy: {nn_accuracy:.2f}")
+
+    plt.figure(figsize=(12,5))
+
+    # Accuracy
+    plt.subplot(1,2,1)
+    plt.plot(history.history['binary_accuracy'], label='train_accuracy')
+    plt.plot(history.history['val_binary_accuracy'], label='val_accuracy')
+    plt.legend()
+    plt.title('Training vs Validation Accuracy')
+
+    # Loss
+    plt.subplot(1,2,2)
+    plt.plot(history.history['loss'], label='train_loss')
+    plt.plot(history.history['val_loss'], label='val_loss')
+    plt.legend()
+    plt.title('Training vs Validation Loss')
+
+    plt.show()
+
+    # Random Forest probabilities
+    y_probs_rf = forest_model.predict_proba(X_test)[:,1]
+
+    # Neural Network probabilities
+    y_probs_nn = nn_model.predict(X_test).ravel()
+
+    # ROC Curves
+    fpr_rf, tpr_rf, _ = roc_curve(y_test, y_probs_rf)
+    fpr_nn, tpr_nn, _ = roc_curve(y_test, y_probs_nn)
+
+    auc_rf = auc(fpr_rf, tpr_rf)
+    auc_nn = auc(fpr_nn, tpr_nn)
+
+    plt.figure(figsize=(8,6))
+    plt.plot(fpr_rf, tpr_rf, label=f"RF AUC = {auc_rf:.2f}")
+    plt.plot(fpr_nn, tpr_nn, label=f"NN AUC = {auc_nn:.2f}")
+    plt.plot([0,1], [0,1], 'k--')
+    plt.legend()
+    plt.title("ROC Curves")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.show()
